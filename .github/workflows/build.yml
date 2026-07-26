@@ -98,7 +98,7 @@ jobs:
               plugins = [p for p in plugins if p.get("internalName") != "OpVerse Mobile"]
 
               plugins.append({
-                  "iconUrl": "https://raw.githubusercontent.com/0xOpCode/akashiverse/refs/heads/main/opverse.png",
+                  "iconUrl": "https://raw.githubusercontent.com/0xOpCode/omnibingeverse/refs/heads/main/opverse.png",
                   "apiVersion": 1,
                   "repositoryUrl": "https://github.com/0xOpCode/omnibingeverse",
                   "fileSize": file_size,

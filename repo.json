@@ -1,0 +1,9 @@
+{
+  "name": "OmniBingeBox",
+  "iconUrl": "https://raw.githubusercontent.com/0xOpCode/omnibingeverse/refs/heads/main/logo.jpeg",
+  "description": "Premium Cloudstream Extensions by 0xOpCode",
+  "manifestVersion": 1,
+  "pluginLists": [
+    "https://raw.githubusercontent.com/0xOpCode/omnibingeverse/refs/heads/builds/plugins.json"
+  ]
+}
