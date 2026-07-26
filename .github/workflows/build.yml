@@ -1,0 +1,137 @@
+name: Public Release Builder
+
+concurrency:
+  group: "build"
+  cancel-in-progress: true
+
+on:
+  repository_dispatch:
+    types: [build_extension]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Public Repo
+        uses: actions/checkout@v4
+        with:
+          path: "public-repo"
+
+      - name: Checkout Private Source Code
+        uses: actions/checkout@v4
+        with:
+          repository: 0xOpCode/akashiverse
+          token: ${{ secrets.PRIVATE_CLONE_TOKEN }}
+          path: "src"
+
+      - name: Checkout builds branch
+        uses: actions/checkout@v4
+        with:
+          ref: "builds"
+          path: "builds"
+        continue-on-error: true
+
+      - name: Prepare builds directory if it doesn't exist
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/builds
+          rm -f $GITHUB_WORKSPACE/builds/*.cs3 || true
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Build Gradle Plugins (KissKH)
+        run: |
+          cd $GITHUB_WORKSPACE/src
+          chmod +x gradlew
+          ./gradlew make makePluginsJson
+          cp **/build/*.cs3 $GITHUB_WORKSPACE/builds || true
+          cp build/plugins.json $GITHUB_WORKSPACE/builds || true
+
+      - name: Build OpVerse Mobile (smali)
+        run: |
+          cd $GITHUB_WORKSPACE/src
+          
+          # Reassemble smali -> classes.dex
+          java -jar tools/smali.jar a smali_output -o "OpVerse Mobile/classes.dex"
+          
+          # Package into .cs3
+          cd "OpVerse Mobile"
+          zip -r "$GITHUB_WORKSPACE/builds/OpVerse Mobile.cs3" . -x ".*"
+          cd ..
+
+      - name: Generate combined plugins.json
+        run: |
+          cd $GITHUB_WORKSPACE/builds
+          python3 - << 'PYEOF'
+          import json, hashlib, os
+
+          plugins = []
+
+          # Load Gradle-generated plugins.json (for KissKH etc.)
+          gradle_json = "plugins.json"
+          if os.path.exists(gradle_json):
+              with open(gradle_json, "r") as f:
+                  try:
+                      plugins.extend(json.load(f))
+                  except json.JSONDecodeError:
+                      pass
+
+          # Check if OpVerse Mobile.cs3 exists and add/update its entry
+          opverse_cs3 = "OpVerse Mobile.cs3"
+          if os.path.exists(opverse_cs3):
+              file_size = os.path.getsize(opverse_cs3)
+              with open(opverse_cs3, "rb") as f:
+                  sha256 = hashlib.sha256(f.read()).hexdigest()
+              file_hash = f"sha256-{sha256}"
+
+              plugins = [p for p in plugins if p.get("internalName") != "OpVerse Mobile"]
+
+              plugins.append({
+                  "iconUrl": "https://raw.githubusercontent.com/0xOpCode/akashiverse/refs/heads/main/opverse.png",
+                  "apiVersion": 1,
+                  "repositoryUrl": "https://github.com/0xOpCode/omnibingeverse",
+                  "fileSize": file_size,
+                  "fileHash": file_hash,
+                  "status": 1,
+                  "language": "hi",
+                  "authors": ["0xOpCode"],
+                  "tvTypes": ["Movie", "TvSeries"],
+                  "version": 3,
+                  "internalName": "OpVerse Mobile",
+                  "description": "Premium multi-source mirror player for Indian movies & web series.",
+                  "url": "https://raw.githubusercontent.com/0xOpCode/omnibingeverse/refs/heads/builds/OpVerse Mobile.cs3",
+                  "name": "OpVerse Mobile"
+              })
+
+          with open("plugins.json", "w") as f:
+              json.dump(plugins, f, indent=2)
+
+          print(f"plugins.json written with {len(plugins)} plugin(s)")
+          PYEOF
+
+      - name: Push builds
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd $GITHUB_WORKSPACE/builds
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add .
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          
+          # Attempt to amend or create a new commit
+          git commit --amend -m "Build $GITHUB_SHA" || git commit -m "Build $GITHUB_SHA" || exit 0
+          
+          # Force push to the builds branch
+          git push origin HEAD:builds --force
